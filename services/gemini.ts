@@ -276,31 +276,44 @@ export const generateRapAudio = async (text: string): Promise<string> => {
   return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
 };
 
-export const generateRapCoverArt = async (title: string, style: string, size: ImageSize, useFlash = false): Promise<string> => {
-  // Image Generation strictly uses Gemini for now
+export const generateRapCoverArt = async (
+  title: string,
+  style: string,
+  size: ImageSize,
+  useFlash = false
+): Promise<string> => {
   const config = getAIConfig();
-  const geminiKey = (config.provider === 'gemini' && config.apiKey) ? config.apiKey : process.env.API_KEY;
+  const geminiKey =
+    config.provider === "gemini" && config.apiKey
+      ? config.apiKey
+      : process.env.API_KEY;
 
   const ai = new GoogleGenAI({ apiKey: geminiKey });
-  const modelName = useFlash ? 'gemini-2.5-flash-image' : 'gemini-3-pro-image-preview';
+  const modelName = useFlash
+    ? "gemini-2.5-flash-image"
+    : "gemini-3-pro-image-preview";
+
   const prompt = `Professional album cover art for a Persian Rap song titled "${title}". Style: ${style}. High contrast, cinematic lighting, gritty urban aesthetic, Persian calligraphy elements, masterpiece, 4k.`;
-  
+
   const imageConfig: any = { aspectRatio: "1:1" };
-  if (modelName === 'gemini-3-pro-image-preview') {
+  if (modelName === "gemini-3-pro-image-preview") {
     imageConfig.imageSize = size;
   }
 
   const response = await ai.models.generateContent({
     model: modelName,
     contents: [{ text: prompt }],
-    config: {
-      imageConfig: imageConfig
-    }
+    config: { imageConfig }
   });
 
-  const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+  const part =
+    response?.candidates?.[0]?.content?.parts?.find(
+      (p: any) => p?.inlineData
+    ) ?? null;
+
   return part?.inlineData?.data || "";
 };
+
 
 export const regenerateRapLines = async (fullContent: string, lineIndices: number[], style: string, topic: string, instruction: string): Promise<string> => {
   
