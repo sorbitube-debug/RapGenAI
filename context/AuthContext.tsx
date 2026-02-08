@@ -2,7 +2,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../types';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
-import { cloudStorage } from '../services/cloudStorage';
 
 interface AuthContextType {
   user: User | null;
@@ -22,7 +21,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // --- Local Storage Fallback Logic (Only used if Supabase config is missing) ---
+  // --- Local Storage Fallback Logic ---
   const saveToLocal = (u: User) => localStorage.setItem('rapgen_user', JSON.stringify(u));
   const getFromLocal = (): User | null => {
     const data = localStorage.getItem('rapgen_user');
@@ -31,6 +30,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const clearLocal = () => localStorage.removeItem('rapgen_user');
   // ------------------------------------
 
+  // Fetch user profile from 'profiles' table (Supabase Mode)
   const fetchProfile = async (userId: string, email: string) => {
     try {
       const { data, error } = await supabase
@@ -41,7 +41,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (error) {
         console.warn('Profile fetch warning (using auth metadata):', error.message);
-        // Fallback for immediate UI update if trigger is slow
         setUser({
             id: userId,
             email: email,
@@ -60,7 +59,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           name: data.full_name || 'کاربر',
           credits: data.credits || 0,
           avatar: data.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.full_name}`,
-          ownedPlugins: data.owned_plugins || []
+          ownedPlugins: data.owned_plugins || [] // Assuming Supabase has this column, or fallback to empty
         };
         setUser(userData);
       }
@@ -71,41 +70,52 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const initializeAuth = async () => {
-      // 1. Check if Supabase is actually configured
-      if (!isSupabaseConfigured) {
-         console.warn("Supabase is not configured. Using local storage mode.");
-         const localUser = getFromLocal();
-         if (localUser) {
-             if (!localUser.ownedPlugins) localUser.ownedPlugins = [];
-             setUser(localUser);
-         }
+      const localUser = getFromLocal();
+      if (localUser && !isSupabaseConfigured) {
+         if (!localUser.ownedPlugins) localUser.ownedPlugins = [];
+         setUser(localUser);
          setLoading(false);
          return;
       }
 
-      // 2. Check active Supabase session
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        
-        if (session?.user) {
-            await fetchProfile(session.user.id, session.user.email!);
-        }
-      } catch (error: any) {
-        console.error("Auth init error:", error.message);
+      if (isSupabaseConfigured) {
+          try {
+            const { data: { session }, error } = await supabase.auth.getSession();
+            if (error) throw error;
+            
+            if (session?.user) {
+                await fetchProfile(session.user.id, session.user.email!);
+            } else if (localUser) {
+                if (!localUser.ownedPlugins) localUser.ownedPlugins = [];
+                setUser(localUser);
+            }
+          } catch (error: any) {
+            console.warn("Supabase connection failed, falling back to local/demo mode:", error.message);
+            if (localUser) {
+                if (!localUser.ownedPlugins) localUser.ownedPlugins = [];
+                setUser(localUser);
+            }
+          }
+      } else {
+         if (localUser) {
+             if (!localUser.ownedPlugins) localUser.ownedPlugins = [];
+             setUser(localUser);
+         }
       }
       
       setLoading(false);
 
-      // 3. Listen for changes
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-           await fetchProfile(session.user.id, session.user.email!);
-        } else if (event === 'SIGNED_OUT') {
-           setUser(null);
-        }
-      });
-      return () => subscription.unsubscribe();
+      if (isSupabaseConfigured) {
+          const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            if (event === 'SIGNED_IN' && session?.user) {
+               await fetchProfile(session.user.id, session.user.email!);
+            } else if (event === 'SIGNED_OUT') {
+               setUser(null);
+               clearLocal();
+            }
+          });
+          return () => subscription.unsubscribe();
+      }
     };
 
     initializeAuth();
@@ -113,7 +123,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const loginWithGoogle = async () => {
     if (!isSupabaseConfigured) {
-      alert("سرویس گوگل در حالت دمو فعال نیست.");
+      alert("سرویس گوگل در حالت دمو فعال نیست. لطفا از ورود معمولی استفاده کنید.");
       return;
     }
     const { error } = await supabase.auth.signInWithOAuth({
@@ -127,7 +137,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const login = async (email: string, pass: string) => {
     if (!isSupabaseConfigured) {
-       // Demo mode
        await new Promise(r => setTimeout(r, 800)); 
        const localUser = getFromLocal();
        if (localUser && localUser.email === email) {
@@ -139,7 +148,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
            id: 'demo-' + Math.random().toString(36).substr(2,9),
            email,
            name: email.split('@')[0],
-           credits: 250,
+           credits: 250, // More credits for demo to buy plugins
            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
            ownedPlugins: []
        };
@@ -154,15 +163,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           password: pass,
         });
         if (error) throw error;
-        await cloudStorage.logActivity(user?.id || 'unknown', 'login', 'ورود به حساب کاربری');
     } catch (error: any) {
+        if (error.message.includes('Failed to fetch') || error.message.includes('network')) {
+            const demoUser: User = {
+               id: 'offline-' + Math.random().toString(36).substr(2,9),
+               email,
+               name: email.split('@')[0],
+               credits: 250,
+               avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
+               ownedPlugins: []
+            };
+            setUser(demoUser);
+            saveToLocal(demoUser);
+            return;
+        }
         throw new Error(error.message);
     }
   };
 
   const signup = async (name: string, email: string, pass: string) => {
     if (!isSupabaseConfigured) {
-        // Demo mode
         await new Promise(r => setTimeout(r, 800));
         const newUser: User = {
            id: 'demo-' + Math.random().toString(36).substr(2,9),
@@ -187,23 +207,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (authError) throw authError;
 
         if (authData.user) {
-          // Profile is created by Trigger in Supabase (handle_new_user)
-          // But if triggers aren't set up, we can force it here:
           const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${name}`;
-          
-          const { error: profileError } = await supabase.from('profiles').upsert([
-             { id: authData.user.id, full_name: name, credits: 100, avatar_url: avatarUrl, owned_plugins: [], email: email }
-          ]);
-          
-          if (profileError) console.warn("Manual profile creation error (might be handled by trigger):", profileError);
+          try {
+              await supabase.from('profiles').insert([
+                { id: authData.user.id, full_name: name, credits: 100, avatar_url: avatarUrl, owned_plugins: [] }
+              ]);
+          } catch(e) { console.warn("Profile creation skipped/failed", e); }
 
           if (authData.session) {
              await fetchProfile(authData.user.id, email);
           } else {
-             throw new Error("ثبت نام موفق! لطفاً ایمیل خود را تایید کنید.");
+             throw new Error("ثبت نام انجام شد. اگر ایمیل تایید نیاز است، لطفاً اینباکس خود را چک کنید.");
           }
         }
     } catch (error: any) {
+        if (error.message.includes('Failed to fetch')) {
+             const demoUser: User = {
+               id: 'offline-' + Math.random().toString(36).substr(2,9),
+               email,
+               name,
+               credits: 100,
+               avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${name}`,
+               ownedPlugins: []
+            };
+            setUser(demoUser);
+            saveToLocal(demoUser);
+            return;
+        }
         throw new Error(error.message);
     }
   };
@@ -220,26 +250,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!user) return;
     const newBalance = Math.max(0, user.credits + amount);
     
-    // Optimistic Update
     const updatedUser = { ...user, credits: newBalance };
     setUser(updatedUser);
-    if (!isSupabaseConfigured) saveToLocal(updatedUser);
+    saveToLocal(updatedUser);
 
-    if (isSupabaseConfigured && !user.id.startsWith('demo-')) {
+    if (isSupabaseConfigured && !user.id.startsWith('demo-') && !user.id.startsWith('offline-')) {
         const { error } = await supabase
           .from('profiles')
           .update({ credits: newBalance })
           .eq('id', user.id);
-        
-        if (error) {
-            console.error('Error updating credits on server:', error);
-            // Revert on error
-            setUser(user); 
-        } else {
-            if (amount > 0) {
-                cloudStorage.logActivity(user.id, 'credit_update', `افزایش اعتبار: ${amount} واحد`);
-            }
-        }
+        if (error) console.error('Error updating credits on server:', error);
     }
   };
 
@@ -247,16 +267,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!user) return;
     const updatedUser = { ...user, name, avatar };
     setUser(updatedUser);
-    if (!isSupabaseConfigured) saveToLocal(updatedUser);
+    saveToLocal(updatedUser);
 
-    if (isSupabaseConfigured && !user.id.startsWith('demo-')) {
+    if (isSupabaseConfigured && !user.id.startsWith('demo-') && !user.id.startsWith('offline-')) {
         const { error } = await supabase
           .from('profiles')
           .update({ full_name: name, avatar_url: avatar })
           .eq('id', user.id);
-        
         if (error) console.error('Error updating profile on server:', error);
-        else cloudStorage.logActivity(user.id, 'profile_update', 'بروزرسانی پروفایل کاربری');
     }
   };
 
@@ -268,24 +286,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const newBalance = user.credits - cost;
       const newPlugins = [...user.ownedPlugins, pluginId];
       
-      // Optimistic UI
       const updatedUser = { ...user, credits: newBalance, ownedPlugins: newPlugins };
       setUser(updatedUser);
-      if (!isSupabaseConfigured) saveToLocal(updatedUser);
+      saveToLocal(updatedUser);
 
-      if (isSupabaseConfigured && !user.id.startsWith('demo-')) {
+      if (isSupabaseConfigured && !user.id.startsWith('demo-') && !user.id.startsWith('offline-')) {
+          // This assumes Supabase table has an 'owned_plugins' array column
           const { error } = await supabase
             .from('profiles')
             .update({ credits: newBalance, owned_plugins: newPlugins })
             .eq('id', user.id);
-          
-          if (error) {
-              console.error('Error syncing purchase:', error);
-              setUser(user); // Revert
-              return false;
-          } else {
-              cloudStorage.logActivity(user.id, 'purchase_plugin', `خرید افزونه ${pluginId}`);
-          }
+          if (error) console.error('Error syncing purchase:', error);
       }
       return true;
   };

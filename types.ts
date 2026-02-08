@@ -1,5 +1,4 @@
 
-
 export enum RapStyle {
   Gangsta = "گنگ و خیابانی",
   Emotional = "احساسی و دپ",
@@ -145,7 +144,6 @@ export interface CloudProject {
   style: RapStyle;
   lastModified: number;
   comments: UserComment[];
-  aiAnalysis?: string;
 }
 
 export type AIProvider = 'gemini' | 'openai_compatible';
