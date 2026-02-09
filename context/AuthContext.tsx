@@ -136,8 +136,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const login = async (email: string, pass: string) => {
+    const DEMO_EMAIL = 'a@gmail.com';
+
+    // حالت دمو فقط زمانی فعال است که Supabase تنظیم نشده باشد
+    // و ایمیل دقیقاً برابر DEMO_EMAIL باشد.
     if (!isSupabaseConfigured) {
-       await new Promise(r => setTimeout(r, 800)); 
+       await new Promise(r => setTimeout(r, 800));
+
+       if (email !== DEMO_EMAIL) {
+         throw new Error('حالت دمو فقط برای ایمیل a@gmail.com فعال است. لطفاً با این ایمیل وارد شوید یا تنظیمات Supabase را کامل کنید.');
+       }
+
        const localUser = getFromLocal();
        if (localUser && localUser.email === email) {
            if (!localUser.ownedPlugins) localUser.ownedPlugins = [];
@@ -165,6 +174,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (error) throw error;
     } catch (error: any) {
         if (error.message.includes('Failed to fetch') || error.message.includes('network')) {
+            // در صورت قطع ارتباط با Supabase، فقط برای ایمیل دمو
+            // کاربر آفلاین ساخته می‌شود.
+            const DEMO_EMAIL = 'a@gmail.com';
+            if (email !== DEMO_EMAIL) {
+              throw new Error('عدم دسترسی به سرور احراز هویت. حالت آفلاین فقط برای ایمیل a@gmail.com مجاز است.');
+            }
+
             const demoUser: User = {
                id: 'offline-' + Math.random().toString(36).substr(2,9),
                email,
@@ -182,8 +198,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signup = async (name: string, email: string, pass: string) => {
+    const DEMO_EMAIL = 'a@gmail.com';
+
     if (!isSupabaseConfigured) {
         await new Promise(r => setTimeout(r, 800));
+
+        if (email !== DEMO_EMAIL) {
+          throw new Error('ثبت‌نام در حالت دمو فقط برای ایمیل a@gmail.com مجاز است. لطفاً از این ایمیل استفاده کنید یا Supabase را تنظیم کنید.');
+        }
+
         const newUser: User = {
            id: 'demo-' + Math.random().toString(36).substr(2,9),
            email,
@@ -222,6 +245,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     } catch (error: any) {
         if (error.message.includes('Failed to fetch')) {
+             const DEMO_EMAIL = 'a@gmail.com';
+             if (email !== DEMO_EMAIL) {
+               throw new Error('عدم دسترسی به سرور ثبت‌نام. حالت آفلاین فقط برای ایمیل a@gmail.com مجاز است.');
+             }
+
              const demoUser: User = {
                id: 'offline-' + Math.random().toString(36).substr(2,9),
                email,
