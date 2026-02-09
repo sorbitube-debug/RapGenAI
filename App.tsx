@@ -1043,17 +1043,27 @@ const AppContent: React.FC = () => {
                   topic={topic}
                   suggestedBpm={result.suggestedBpm}
                   imageUrl={result.imageUrl}
-                  onSave={() => {
+                  onSave={async () => {
                       if (user && result) {
-                          cloudStorage.saveProject({
-                              id: Math.random().toString(36).substr(2, 9),
-                              userId: user.id,
-                              title: result.title,
-                              content: result.content,
-                              style: style,
-                              lastModified: Date.now(),
-                              comments: []
-                          });
+                          try {
+                              // Generate UUID for real users, simple string for demo/offline
+                              const projectId = (user.id.startsWith('demo-') || user.id.startsWith('offline-'))
+                                  ? Math.random().toString(36).substr(2, 9)
+                                  : (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substr(2, 9));
+                              
+                              await cloudStorage.saveProject({
+                                  id: projectId,
+                                  userId: user.id,
+                                  title: result.title,
+                                  content: result.content,
+                                  style: style,
+                                  lastModified: Date.now(),
+                                  comments: []
+                              });
+                          } catch (err) {
+                              console.error('Failed to save project:', err);
+                              setError('خطا در ذخیره پروژه. لطفاً دوباره تلاش کنید.');
+                          }
                       } else if (!user) { setIsAuthModalOpen(true); }
                   }}
                 />

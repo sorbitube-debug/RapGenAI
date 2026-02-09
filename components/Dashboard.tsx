@@ -60,10 +60,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ initialTab = 'profile', on
     if (user) {
       // Always load projects to calculate stats even if not on projects tab
       setLoadingProjects(true);
-      setTimeout(() => {
-        setProjects(cloudStorage.getProjects(user.id).sort((a, b) => b.lastModified - a.lastModified));
-        setLoadingProjects(false);
-      }, 300);
+      const loadProjects = async () => {
+        try {
+          const projects = await cloudStorage.getProjects(user.id);
+          setProjects(projects.sort((a, b) => b.lastModified - a.lastModified));
+        } catch (err) {
+          console.error('Failed to load projects:', err);
+        } finally {
+          setLoadingProjects(false);
+        }
+      };
+      loadProjects();
       
       // Initialize edit state
       setEditName(user.name);
@@ -142,11 +149,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ initialTab = 'profile', on
     }
   };
 
-  const handleDeleteProject = (id: string) => {
+  const handleDeleteProject = async (id: string) => {
     if (confirm('آیا از حذف این پروژه اطمینان دارید؟')) {
-      cloudStorage.deleteProject(id);
-      if (user) {
-        setProjects(cloudStorage.getProjects(user.id).sort((a, b) => b.lastModified - a.lastModified));
+      try {
+        await cloudStorage.deleteProject(id);
+        if (user) {
+          const projects = await cloudStorage.getProjects(user.id);
+          setProjects(projects.sort((a, b) => b.lastModified - a.lastModified));
+        }
+      } catch (err) {
+        console.error('Failed to delete project:', err);
+        alert('خطا در حذف پروژه. لطفاً دوباره تلاش کنید.');
       }
     }
   };
